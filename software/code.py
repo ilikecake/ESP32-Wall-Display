@@ -72,7 +72,13 @@ MQTT_Config_Pressure = "homeassistant/sensor/"+secrets["UUID"]+"_pressure/config
 
 MQTT_lwt = "homeassistant/sensor/"+secrets["UUID"]+"_" + secrets["device_ID"] + "/lwt"
 
-#print("LWT: " + MQTT_lwt)
+MQTT_Device_info = {"ids":       [secrets["UUID"]],                                                 \
+                    "name":              secrets["device_name"],                                    \
+                    "suggested_area":    "Kitchen",                                                 \
+                    "manufacturer":      "Pat Satyshur",                                            \
+                    "model":             "Home Assistant Discovery for "+secrets["device_name"],    \
+                    "sw_version":        "https://github.com/ilikecake/ESP32-Wall-Display",         \
+                    "configuration_url": "https://github.com/ilikecake/ESP32-Wall-Display"          }
 
 MQTT_Config_Temp_Payload = json.dumps({"device_class":           "temperature",                             \
                                        "name":                   secrets["device_name"] + " Temperature",   \
@@ -82,7 +88,8 @@ MQTT_Config_Temp_Payload = json.dumps({"device_class":           "temperature", 
                                        "unique_id":              secrets["UUID"]+"_temp",                   \
                                        "availability_topic":     MQTT_lwt,                                  \
                                        "payload_available":      "online",                                  \
-                                       "payload_not_available":  "offline"                                  })
+                                       "payload_not_available":  "offline",                                 \
+                                       "device":                 MQTT_Device_info                           })
 
 MQTT_Config_Humidity_Payload = json.dumps({"device_class":           "humidity",                                \
                                            "name":                   secrets["device_name"] + " Humidity",      \
@@ -92,7 +99,8 @@ MQTT_Config_Humidity_Payload = json.dumps({"device_class":           "humidity",
                                            "unique_id":              secrets["UUID"]+"_humidity",               \
                                            "availability_topic":     MQTT_lwt,                                  \
                                            "payload_available":      "online",                                  \
-                                           "payload_not_available":  "offline"                                  })
+                                           "payload_not_available":  "offline",                                 \
+                                           "device":                 MQTT_Device_info                           })
 
 MQTT_Config_Pressure_Payload = json.dumps({"device_class":           "pressure",                                \
                                            "name":                   secrets["device_name"] + " Pressure",      \
@@ -102,7 +110,8 @@ MQTT_Config_Pressure_Payload = json.dumps({"device_class":           "pressure",
                                            "unique_id":              secrets["UUID"]+"_pressure",               \
                                            "availability_topic":     MQTT_lwt,                                  \
                                            "payload_available":      "online",                                  \
-                                           "payload_not_available":  "offline"                                  })
+                                           "payload_not_available":  "offline",                                 \
+                                           "device":                 MQTT_Device_info                           })
 
 NewRemoteData = False
 
