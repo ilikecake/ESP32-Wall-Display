@@ -66,13 +66,13 @@ MQTT_Light_topic = secrets["device_status_topic"] + '#'                     #TOD
 MQTT_Remote_Data_Topic = 'homeassistant/sensor/WeatherStation/state'        #TODO: Should this be in the config file?
 
 MQTT_State_Topic = "homeassistant/sensor/" + secrets["UUID"] + "/state"
-MQTT_Config_Temp = "homeassistant/sensor/"+secrets["UUID"]+"_temp/config"
+MQTT_Config_Temp = "homeassistant/sensor/" + secrets["UUID"]+"_temp/config"
 MQTT_Config_Humidity = "homeassistant/sensor/"+secrets["UUID"]+"_humidity/config"
 MQTT_Config_Pressure = "homeassistant/sensor/"+secrets["UUID"]+"_pressure/config"
 
 MQTT_lwt = "homeassistant/sensor/"+secrets["UUID"]+"_" + secrets["device_ID"] + "/lwt"
 
-MQTT_Device_info = {"ids":       [secrets["UUID"]],                                                 \
+MQTT_Device_info = {"ids":               [secrets["UUID"]],                                         \
                     "name":              secrets["device_name"],                                    \
                     "suggested_area":    "Kitchen",                                                 \
                     "manufacturer":      "Pat Satyshur",                                            \
@@ -340,7 +340,6 @@ OldMin = now.tm_min
 NTP_Retry = 0
 ButtonAPressCount = 0
 
-
 while True:
 
     #PixelRGBValue = [0, 0, 0]
@@ -367,7 +366,6 @@ while True:
         else:
             TheDisplay.Unblank()
             print("button A do stuff")
-            mqtt_client.publish(MQTT_lwt, 'online', qos=1, retain=True)
             TheDisplay.ShowLocal()
         if ButtonAPressCount > 5:
             print("Delete the MQTT sensor")
@@ -389,7 +387,6 @@ while True:
         else:
             TheDisplay.Unblank()
             print("button C do stuff")
-            mqtt_client.publish(MQTT_lwt, 'offline', qos=1, retain=True)
             TheDisplay.ShowRemote()
         button_C.count = 0
 

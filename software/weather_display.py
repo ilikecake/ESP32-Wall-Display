@@ -16,7 +16,7 @@ class WeatherDisplay:
         self._DisplayWidth = 128
         self._DisplayHeight = 64
         self._BorderWidth = 2
-        self._display = adafruit_displayio_sh1107.SH1107(self._display_bus, width=self._DisplayWidth, height=self._DisplayHeight, rotation=0)
+        self._display = adafruit_displayio_sh1107.SH1107(self._display_bus, width=self._DisplayWidth, height=self._DisplayHeight, rotation=180, brightness=1)
 
         self._oldMin = -1
         self._oldDay = -1
@@ -157,7 +157,7 @@ class WeatherDisplay:
                 self._DisplayStateChanged = True
                 self._RemoteDataLost = True
             elif (self._DataCounter == self._DataCounterMax) and (self._RemoteDataLost == True):
-                #When the display is waiting for data, and new data comes in
+                #This occurs when the display is waiting for data, and new data comes in
                 #Indicate that the display state needs to be updated here
                 self._DisplayStateChanged = True
                 self._RemoteDataLost = False
@@ -178,8 +178,10 @@ class WeatherDisplay:
         if now is not None:
             if now.tm_min != self._oldMin:
                 self.UpdateTime(now)
+                self._oldMin = now.tm_min
             if now.tm_mday != self._oldDay:
                 self.UpdateDate(now)
+                self._oldDay = now.tm_mday
             if self._DisplayShouldBeOn(now):
                 self.Unblank()
                 
@@ -251,6 +253,9 @@ class WeatherDisplay:
         #    self._HumidityValue.text = "{:.1f}%".format(self._LocalData["humidity"])
         #    self._PressureValue.text = "{:.2f}inHg".format(self._LocalData["pressure"]*0.02953)     #TODO: Make a function to auto-convert?
 
+    def SetBrightness(self, BrightnessVal):
+        if (BrightnessVal >= 0) and (BrightnessVal <= 1):
+            self._display.brightness = BrightnessVal
 
     def SetWeatherLabel(self, LabelToSet):
         self._WeatherLabel.text = LabelToSet
