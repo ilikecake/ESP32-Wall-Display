@@ -23,10 +23,10 @@ class WeatherDisplay:
         self._DataCounter = 0               #Counts down from DataCounterMax to zero. When it reaches zero, connection with the remote sensor is assumed lost.
         self._DisplayTimeoutCounter = 0     #Counts down to zero. Display state is updated when it reaches zero. Initial value can be different for different display states as seen below.
         
-        self._DataCounterMax = 100          #Top value for the data counter
-        self._RemoteDisplayTimout = 50      #Top value for the display counter when showing the remote sensor data
-        self._LocalDisplayTimout = 50       #Top value for the display counter when showing the local sensor data
-        self._StatusDisplayTimout = 50      #Top value for the display counter when showing status messages. This value can be overridden by the ShowStatus function.
+        self._DataCounterMax = 500           #Top value for the data counter
+        self._RemoteDisplayTimout = 250      #Top value for the display counter when showing the remote sensor data
+        self._LocalDisplayTimout = 250       #Top value for the display counter when showing the local sensor data
+        self._StatusDisplayTimout = 250      #Top value for the display counter when showing status messages. This value can be overridden by the ShowStatus function.
         
         #Set initial state of the display and data
         self._DisplayState = DisplayState_Status
@@ -138,7 +138,6 @@ class WeatherDisplay:
         self._DateDisplay.anchored_position = (126, 51)
         self._WeatherDisplay.append(self._DateDisplay)
 
-        #self._display.show(self._BlankDisplay)
         self.Blank()
 
     def Update(self, now):
@@ -208,9 +207,6 @@ class WeatherDisplay:
                 self._display.show(self._WeatherDisplay)
             elif self._DisplayState == DisplayState_Status:
                 self._display.show(self._MessageDisplay)
-            #elif self._DisplayState == _DisplayState_NoData:    
-            #    self.StatusText(1, 'Waiting for data...')
-            #    self._display.show(self._MessageDisplay)
             elif self._DisplayState == DisplayState_Blank:
                 self._display.show(self._BlankDisplay)
 
@@ -246,24 +242,11 @@ class WeatherDisplay:
             self._DisplayStateChanged = True
             self._RemoteDataLost = False
             self.Update(None)
-        
-        #TODO: Not sure if this should go here, or in the update function. If I put it here, it is only called when new data exsists.
-        #TODO: Maybe make a function that updates the display with new data.
-        #if (self._DisplayState == DisplayState_Remote):
-        #    self._TempValue.text = "{:.1f}".format(self._RemoteData["temperature"])
-        #    self._HumidityValue.text = "{:.1f}%".format(self._RemoteData["humidity"])
-        #    self._PressureValue.text = "{:.2f}inHg".format(self._RemoteData["pressure"]*0.02953)     #TODO: Make a function to auto-convert?
 
     def UpdateLocal(self, sensor_data):
         #self._DataCounter = self._DataCounterMax   #TODO: Dont reset timeout on local data??
         self._LocalData = sensor_data
         self._UpdateSensorDisplay()
-        
-        #TODO: Not sure if this should go here, or in the update function. If I put it here, it is only called when new data exsists.
-        #if (self._DisplayState == DisplayState_Local):
-        #    self._TempValue.text = "{:.1f}".format(self._LocalData["temperature"])
-        #    self._HumidityValue.text = "{:.1f}%".format(self._LocalData["humidity"])
-        #    self._PressureValue.text = "{:.2f}inHg".format(self._LocalData["pressure"]*0.02953)     #TODO: Make a function to auto-convert?
 
     def SetBrightness(self, BrightnessVal):
         if (BrightnessVal >= 0) and (BrightnessVal <= 1):
@@ -277,8 +260,8 @@ class WeatherDisplay:
             if not isinstance(TextToDisplay, str):
                 try:
                     ConvertedText = str(TextToDisplay)
-                except: #TODO: I am not supposed to do a catch-all, but I think it makes sense here.
-                    ConvertedText = "Can't convert text"   #TODO: make this more descriptive
+                except:
+                    ConvertedText = "Can't convert text"
                 self._MessageText[LineToDisplay-1].text = ConvertedText
             else:
                 self._MessageText[LineToDisplay-1].text = TextToDisplay
@@ -292,61 +275,34 @@ class WeatherDisplay:
         self._DisplayTimeoutCounter = TimeoutToSet
         self.Update(None)
 
-    def ClearStatusText(self):
-        self._MessageText[0].text = ''
-        self._MessageText[1].text = ''
-        self._MessageText[2].text = ''
-        self._MessageText[3].text = ''
-        self._MessageText[4].text = ''
-
     def ShowRemote(self):
         #External function to show the remote data.
         print('Showing remote')
-        #self.Unblank()
         self._DisplayStateChanged = True
-        #self.SetWeatherLabel("Outside:")
-        #self._UpdateSensorDisplay()
         self._DisplayState = DisplayState_Remote
         self._DisplayTimeoutCounter = self._RemoteDisplayTimout
         self.Update(None)
-        #TODO: Call update here?
         
     def ShowLocal(self):
         #External function to show the local data.
         print('Showing local')
-        #self.Unblank()
         self._DisplayStateChanged = True
-        #self.SetWeatherLabel("Inside:")
-        #self._UpdateSensorDisplay()
         self._DisplayState = DisplayState_Local
-        #self._LocalDisplayCounter = self._LocalDisplayCounter_Max
         self._DisplayTimeoutCounter = self._LocalDisplayTimout
         self.Update(None)
-        #TODO: Call update here?
         
     def Blank(self):
         #External function to blank the display.
         self._DisplayStateChanged = True
         self._DisplayState = DisplayState_Blank
         self.Update(None)
-        #self._DisplayIsBlank = True
-        #self._display.show(self._BlankDisplay)
-        
-    def Unblank(self):
-        #External function to unblank the display.
-        self._DisplayStateChanged = True
-        self._DisplayState = DisplayState_Remote   #TODO: I could add something here so that the user can set what screen to show on unblank?
-        self.Update(None)
-        #if self._DisplayIsBlank:
-        #    self._DisplayIsBlank = False
-        #    self._DisplayStateChanged = True
-        #self._DisplayTimeoutCounter = self._DisplayTimeoutMax
-        
-    def DisplayIsBlanked(self):
-        if self._DisplayState == DisplayState_Blank:
-            return True
-        else:
-            return False
+    
+    def ClearStatusText(self):
+        self._MessageText[0].text = ''
+        self._MessageText[1].text = ''
+        self._MessageText[2].text = ''
+        self._MessageText[3].text = ''
+        self._MessageText[4].text = ''
 
     def GetDisplayState(self):
         return self._DisplayState

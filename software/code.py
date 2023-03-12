@@ -16,18 +16,32 @@ import socketpool
 import adafruit_requests
 import neopixel
 
-
 from adafruit_bme280 import basic as adafruit_bme280
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
 
-TIMEOUT_COUNTS = 200
-RETRY_DELAY = 30        #sec
-NTP_Time_Set = False
+#Clear any old display data
+displayio.release_displays()
 
+TIMEOUT_COUNTS = 200    #How many times to try connecting to Wifi and MQTT before reset.
+RETRY_DELAY = 30        #How long to wait between retries of wifi and MQTT connection. Note that the connect functions also have delay built in, so real delay will be longer than this.
+NTP_Time_Set = False    #Set to True when a valid time was recieved from NTP
+
+#Global pixel data. The pixel is used during initialization to indicate the status.
+#   - Red:      Connecting to wifi
+#   - Blue:     Connectingn to MQTT broker
+#   - White:    Getting time from NTP
+#   - Yellow:   Network error in main loop, reconnecting.
+#Once the device is initialized, the pixel is controlled by the MQTT broker.
 PixelRGBValue = [0, 0, 0]
 PixelBrightness = 0
 PixelOn = False
-PixelUpdate = False
+PixelUpdate = False     #Set to true to indicate that the pixel needs to be updated. Pixel is updated in the main loop.
+
+NewRemoteData = False   #Set to true to indicate that new remote data is available. This is set in the MQTT callbacks, and handled in the main loop.
+
+#A counter that is used to control when the device checks for the time from NTP. By default the device checks
+#every ~15 min for NTP if it does not have a valid time, and every 24 hours if it has previously gotten a good time.
+NTP_Retry = 0
 
 try:
     from secrets import secrets
@@ -35,15 +49,8 @@ except ImportError:
     print("WiFi secrets are kept in secrets.py, please add them there!")
     raise   #TODO: What does this do?
 
-    #TODO: Do checking of the secrets file here?
-
 pixel = neopixel.NeoPixel(board.A0, 1)
 wifi.radio.hostname = secrets["device_ID"]
-
-pixel.brightness = 0.3
-pixel.fill([0, 0, 0])
-
-displayio.release_displays()
 
 #Set up button interrupts
 button_A = countio.Counter(board.D9, edge=countio.Edge.FALL, pull=digitalio.Pull.UP)
@@ -62,8 +69,8 @@ RemoteData = {
     "pressure":     0
 }
 
-MQTT_Light_topic = secrets["device_status_topic"] + '#'                     #TODO: Should this be in the config file?
-MQTT_Remote_Data_Topic = 'homeassistant/sensor/WeatherStation/state'        #TODO: Should this be in the config file?
+MQTT_Light_topic = secrets["device_status_topic"] + '#'
+MQTT_Remote_Data_Topic = secrets["Remote_Data_Topic"]
 
 MQTT_State_Topic = "homeassistant/sensor/" + secrets["UUID"] + "/state"
 MQTT_Config_Temp = "homeassistant/sensor/" + secrets["UUID"]+"_temp/config"
@@ -113,33 +120,34 @@ MQTT_Config_Pressure_Payload = json.dumps({"device_class":           "pressure",
                                            "payload_not_available":  "offline",                                 \
                                            "device":                 MQTT_Device_info                           })
 
-NewRemoteData = False
 
-#MQTT Callbacks
-#TODO: Do I need all of these?
+
+#MQTT Callbacks. Most of these are not used.
 def connect(mqtt_client, userdata, flags, rc):
-    # This function will be called when the mqtt_client is connected
-    # successfully to the broker.
-    print("Connected to MQTT Broker!")
-    print("Flags: {0}\n RC: {1}".format(flags, rc))
+    #This function will be called when the mqtt_client is connected successfully to the broker.
+    #print("Connected to MQTT Broker!")
+    #print("Flags: {0}\n RC: {1}".format(flags, rc))
+    pass
 
 def disconnect(mqtt_client, userdata, rc):
-    # This method is called when the mqtt_client disconnects
-    # from the broker.
-    print("Disconnected from MQTT Broker!")
+    #This method is called when the mqtt_client disconnects from the broker.
+    #print("Disconnected from MQTT Broker!")
+    pass
 
 def subscribe(mqtt_client, userdata, topic, granted_qos):
-    # This method is called when the mqtt_client subscribes to a new feed.
-    print("Subscribed to {0} with QOS level {1}".format(topic, granted_qos))
+    #This method is called when the mqtt_client subscribes to a new feed.
+    #print("Subscribed to {0} with QOS level {1}".format(topic, granted_qos))
+    pass
 
 def unsubscribe(mqtt_client, userdata, topic, pid):
-    # This method is called when the mqtt_client unsubscribes from a feed.
-    print("Unsubscribed from {0} with PID {1}".format(topic, pid))
+    #This method is called when the mqtt_client unsubscribes from a feed.
+    #print("Unsubscribed from {0} with PID {1}".format(topic, pid))
+    pass
 
 def publish(mqtt_client, userdata, topic, pid):
-    pass
-    # This method is called when the mqtt_client publishes data to a feed.
+    #This method is called when the mqtt_client publishes data to a feed.
     #print("Published to {0} with PID {1}".format(topic, pid))
+    pass
 
 def message(client, topic, message):
     global RemoteData
@@ -149,22 +157,18 @@ def message(client, topic, message):
     global PixelBrightness
     global PixelUpdate
     # Method called when a client's subscribed feed has a new value.
-    #New message on topic home/status/rgb/set: 255,72,255
-    #New message on topic home/status/light/switch: ON
-    #New message on topic home/status/light/switch: OFF
-    #New message on topic home/status/brightness/set: 111
-    #print("New message on topic {0}: {1}".format(topic, message))
     if topic == MQTT_Remote_Data_Topic:
-        #print("New remote data")
+        #There is new remote data from the server.
         RemoteData = json.loads(message)
         NewRemoteData = True
     elif secrets["device_status_topic"] in topic:
+        #This is where we listen for updates to the pixel state from the MQTT server.
         if 'rgb/set' in topic:
-            #Set new RGB value
+            #Set new pixel RGB value
             PixelRGBValue = [int(x) for x in message.split(",")]
             PixelUpdate = True
         elif 'light/switch' in topic:
-            #Turn the ligth on or off
+            #Turn the pixel on or off
             if message == 'ON':
                 PixelOn = True
                 PixelUpdate = True
@@ -177,8 +181,6 @@ def message(client, topic, message):
             PixelUpdate = True
 
 pool = socketpool.SocketPool(wifi.radio)
-#requests = adafruit_requests.Session(pool, ssl.create_default_context())       #TODO: What does this do? Not sure where it came from, but I don't think I need it?
-#pool = socketpool.SocketPool(wifi.radio)
 
 # Set up a MiniMQTT Client
 mqtt_client = MQTT.MQTT(broker=secrets["mqtt_broker_ip"],
@@ -189,8 +191,7 @@ mqtt_client = MQTT.MQTT(broker=secrets["mqtt_broker_ip"],
                         ssl_context=ssl.create_default_context(),
                         )
 
-# Connect callback handlers to mqtt_client
-#TODO: DO I really need all of these?
+#Connect callback handlers to mqtt_client
 mqtt_client.on_connect = connect
 mqtt_client.on_disconnect = disconnect
 mqtt_client.on_subscribe = subscribe
@@ -202,12 +203,10 @@ mqtt_client.will_set(MQTT_lwt,'offline')
 def ConnectToNetwork():
     global pixel
     global mqtt_client
+    global TheDisplay
     Retries = 0
 
-    global TheDisplay
-
     TheDisplay.ShowStatus()
-    #TheDisplay.Update(None) #TODO: Put this in the show status function
 
     while Retries < TIMEOUT_COUNTS:
         Retries = Retries + 1
@@ -240,7 +239,7 @@ def ConnectToNetwork():
             pixel.fill((0, 0, 50))  #Blue
 
             try:
-                mqtt_client.connect()       #This command has a built in retry/timeout thing, so it takes about 3 min to fail.
+                mqtt_client.connect()       #This command has a built in retry/timeout, so it takes about 3 min to fail.
                 mqtt_client.subscribe(MQTT_Light_topic, qos=1)
                 mqtt_client.subscribe(MQTT_Remote_Data_Topic, qos=1)
                 mqtt_client.publish(MQTT_lwt, 'online', qos=1, retain=True)
@@ -263,20 +262,21 @@ def ConnectToNetwork():
 #This function has a shorter timeout delay and timeout count than the wifi and MQTT connect functions
 # This is because NTP is not required for the device to function, and I don't want the device to stop working if external internet access is lost.
 # If this function times out, the device will keep working and periodically check again for NTP access.
-# This function will take ~5*5=25 sec to timeout. If you want to have updates faster than that, this will cause problems.
+# This function will take 5-10 sec to timeout if the NTP servier is not accessable.
+# Calling this function with SilentMode = true will not change the display or the pixel. For periodic updates to the time during normal operation, use this mode.
 def GetTimeFromNTP(SilentMode = False):
     global pixel
     NTP_Retries = 5
-    NTP_Retry_Delay = 1 #seconds
+    NTP_Retry_Delay = 1     #sec
     Retries = 0
 
     if SilentMode == False:
         TheDisplay.ClearStatusText()
         TheDisplay.StatusText(1,"Setting time...")
         TheDisplay.ShowStatus()
+        pixel.fill((50, 50, 50))  #White
 
     print("Setting time...", end =".")
-    pixel.fill((50, 50, 50))  #White
 
     while True:
         if Retries > NTP_Retries:
@@ -297,7 +297,8 @@ def GetTimeFromNTP(SilentMode = False):
                 TheDisplay.StatusText(3,e)
             time.sleep(NTP_Retry_Delay)
         else:
-            pixel.fill((0, 0, 0))  #Off
+            if SilentMode == False:
+                pixel.fill((0, 0, 0))  #Off
             print("ok")
             return True
 
@@ -320,35 +321,31 @@ def RemoveMQTT():
     mqtt_client.publish(MQTT_Config_Humidity, '', qos=1, retain=True)
     mqtt_client.publish(MQTT_Config_Pressure, '', qos=1, retain=True)
 
-#TODO: Error check the I2C connection to the sensor?
-
 #Initialize I2C and devices
 i2c = board.I2C()  # uses board.SCL and board.SDA
 TheDisplay = weather_display.WeatherDisplay(i2c)
 bme280 = adafruit_bme280.Adafruit_BME280_I2C(i2c)
 
-TheDisplay.Unblank()
-
+print('')
 print("Wall Display ESP32-S3")
 print('MAC Address: {0:X}:{1:X}:{2:X}:{3:X}:{4:X}:{5:X}'.format(wifi.radio.mac_address[0],wifi.radio.mac_address[1],wifi.radio.mac_address[2],wifi.radio.mac_address[3],wifi.radio.mac_address[4],wifi.radio.mac_address[5]))
 
-
 ConnectToNetwork()
 NTP_Time_Set = GetTimeFromNTP()
-
 GetLocalData()
 TheDisplay.UpdateLocal(LocalData)
 mqtt_client.publish(MQTT_State_Topic, json.dumps(LocalData))
 
 now = time.localtime()
-TheDisplay.ShowRemote()
-
 OldMin = now.tm_min
 
-NTP_Retry = 0 
-ButtonAPressCount = 0
+TheDisplay.ShowRemote()
 
 while True:
+    #Get the time
+    now = time.localtime()
+
+    #Handle Neopixel. If new pixel data is recieved from the MQTT broker, the pixel is updated here.
     if PixelUpdate == True:
         print("Update Pixel: PixelOn " + str(PixelOn) + " PixelBrightness: " + str(PixelBrightness) + " PixelRGBValue: " + str(PixelRGBValue))
         if PixelOn:
@@ -358,8 +355,12 @@ while True:
             pixel.fill((0, 0, 0))
         PixelUpdate = False
 
-    ButtonAPressed = False
-    ButtonCPressed = False
+    #Handle button presses. Button presses are counted asynchronously. If the count is > 0, the button was pressed.
+    #   - If the display is blanked, any button press shows the remote data.
+    #   - If the display is showing the remote display, pressing button A will show the local display.
+    #   - If the display is showing the local display, pressing button A will show device status.
+    #   - If the display is showing the device status, pressing button A will show the local display.
+    #   - Pressing button C will always show the remote display.
     if button_A.count > 0:
         print('Button A pressed')
         if TheDisplay.GetDisplayState() == weather_display.DisplayState_Blank:
@@ -384,20 +385,25 @@ while True:
             TheDisplay.ShowRemote()
         button_C.count = 0
 
-    #If we don't have a valid time from NTP, try to get it here
-    #This function checks for a time every ~15 min if the RTC is not set, and every 24 hours if it is.'
-    #Here we call the get time function in 'silent mode' this mode will not change the display.
-    if ((not NTP_Time_Set) and (NTP_Retry > 100)) or (NTP_Retry > 8640):
+    #Handle the RTC and time setting.
+    #   - If we don't have a valid time from NTP, try every ~15 min to get valid data.
+    #   - If we have valid time from NTP, try to get an update every ~24 hours.
+    #Here we call the GetTimeFromNTP function in 'silent mode' this mode will not change the display.
+    #Note that this function may take longer than the tick rate. This will result in skipped ticks when the function runs.
+    #The worst case will be if an NTP server is not available. This will cause the device to hang every ~15 min for about
+    #10 seconds. The display should be unaffected by this, but if updates to data or button presses will be delayed.
+    if ((not NTP_Time_Set) and (NTP_Retry > 500)) or (NTP_Retry > 43200):
         NTP_Time_Set = GetTimeFromNTP(SilentMode = True)
         NTP_Retry = 0
     else:
         NTP_Retry = NTP_Retry + 1
 
-    #MQTT Loop, reconnect on errors
+    #Handle MQTT communication. If we get an error sending data, try to reconnect.
     try:
         mqtt_client.loop()
     except (ValueError, RuntimeError, OSError, MQTT.MMQTTException) as e:
         pixel.fill((50, 50, 0)) #yellow
+        PixelUpdate = True      #Pixel will need to be updated once this condition is cleared.
         NTP_Retry = 0
         print("Error in MQTT loop: ", e)
         ConnectToNetwork()
@@ -405,15 +411,20 @@ while True:
         TheDisplay.ShowRemote()
         continue
 
-    now = time.localtime()
+    #Call the display update function. This function will update the display with the latest data and time.
     TheDisplay.Update(now)
 
+    #If we have new data from the remote sensor, pass it to the display class so that it can be shown on the display.
     if NewRemoteData:
         TheDisplay.UpdateRemote(RemoteData)
         NewRemoteData = False
 
+    #Functions that should run on a slower interval. These happen once per minute.
+    #   - Get data from the location BMP280 sensor
+    #   - Send local data to the display class.
+    #   - Print a summary of the local data to the console in case anyone is listening
+    #   - Send the local data to the MQTT broker. Try to catch and recover from MQTT errors.
     if now.tm_min != OldMin:
-        ButtonAPressCount = 0
         GetLocalData()
         TheDisplay.UpdateLocal(LocalData)
         print('{0:02d}:{1:02d}:{2:02d}: T:{3:.4f}, P:{4:.4f}, H:{5:.4f}'.format(now.tm_hour,
@@ -426,6 +437,7 @@ while True:
             mqtt_client.publish(MQTT_State_Topic, json.dumps(LocalData))
         except (ValueError, RuntimeError, OSError, MQTT.MMQTTException) as e:
             pixel.fill((50, 50, 0)) #yellow
+            PixelUpdate = True      #Pixel will need to be updated once this condition is cleared.
             NTP_Retry = 0
             print("Error sending data: ", e)
             ConnectToNetwork()
@@ -433,4 +445,6 @@ while True:
             continue
         OldMin = now.tm_min
 
-    time.sleep(1)
+    #This is the primary tick rate of the main loop. This controls how fast everything happens. It is set to run the entire main loop
+    #about 5 times per sec. This is probably about as fast as we would need.
+    time.sleep(.2)
