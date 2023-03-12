@@ -207,7 +207,7 @@ def ConnectToNetwork():
     global TheDisplay
 
     TheDisplay.ShowStatus()
-    TheDisplay.Update(None) #TODO: Put this in the show status function
+    #TheDisplay.Update(None) #TODO: Put this in the show status function
 
     while Retries < TIMEOUT_COUNTS:
         Retries = Retries + 1
@@ -264,17 +264,17 @@ def ConnectToNetwork():
 # This is because NTP is not required for the device to function, and I don't want the device to stop working if external internet access is lost.
 # If this function times out, the device will keep working and periodically check again for NTP access.
 # This function will take ~5*5=25 sec to timeout. If you want to have updates faster than that, this will cause problems.
-def GetTimeFromNTP():
+def GetTimeFromNTP(SilentMode = False):
     global pixel
     NTP_Retries = 5
     NTP_Retry_Delay = 1 #seconds
     Retries = 0
 
-    TheDisplay.ShowStatus()
-    TheDisplay.Update(None) #TODO: Put this in the show status function
-    TheDisplay.ClearStatusText()
+    if SilentMode == False:
+        TheDisplay.ClearStatusText()
+        TheDisplay.StatusText(1,"Setting time...")
+        TheDisplay.ShowStatus()
 
-    TheDisplay.StatusText(1,"Setting time...")
     print("Setting time...", end =".")
     pixel.fill((50, 50, 50))  #White
 
@@ -292,8 +292,9 @@ def GetTimeFromNTP():
             rtc.RTC().datetime = ntp.datetime
         except Exception as e:  # pylint: disable=broad-except
             print("Failed to get time from NTP. Error ({0:d}/{1:d}):".format(Retries, NTP_Retries), e)
-            TheDisplay.StatusText(2,"Failed ({0:d}/{1:d})".format(Retries, NTP_Retries))
-            TheDisplay.StatusText(3,e)
+            if SilentMode == False:
+                TheDisplay.StatusText(2,"Failed ({0:d}/{1:d})".format(Retries, NTP_Retries))
+                TheDisplay.StatusText(3,e)
             time.sleep(NTP_Retry_Delay)
         else:
             pixel.fill((0, 0, 0))  #Off
@@ -333,20 +334,13 @@ mqtt_client.publish(MQTT_State_Topic, json.dumps(LocalData))
 
 now = time.localtime()
 TheDisplay.ShowRemote()
-TheDisplay.Update(now)
 
 OldMin = now.tm_min
 
-NTP_Retry = 0
+NTP_Retry = 0 
 ButtonAPressCount = 0
 
 while True:
-
-    #PixelRGBValue = [0, 0, 0]
-    #PixelBrightness = 0
-    #PixelOn = False
-    #PixelUpdate = False
-
     if PixelUpdate == True:
         print("Update Pixel: PixelOn " + str(PixelOn) + " PixelBrightness: " + str(PixelBrightness) + " PixelRGBValue: " + str(PixelRGBValue))
         if PixelOn:
@@ -362,43 +356,48 @@ while True:
         ButtonAPressCount = ButtonAPressCount + 1
         print('Button A pressed')
         if TheDisplay.DisplayIsBlanked():
-            TheDisplay.Unblank()
+            TheDisplay.ShowRemote()
         else:
-            TheDisplay.Unblank()
             print("button A do stuff")
             TheDisplay.ShowLocal()
         if ButtonAPressCount > 5:
-            print("Delete the MQTT sensor")
             TheDisplay.ShowStatus()
-            TheDisplay.Update(None) #TODO: Put this in the show status function
-            TheDisplay.ClearStatusText()
-            TheDisplay.StatusText(1,"Removing MQTT config")
-            mqtt_client.publish(MQTT_Config_Temp, '', qos=1, retain=True)
-            mqtt_client.publish(MQTT_Config_Humidity, '', qos=1, retain=True)
-            mqtt_client.publish(MQTT_Config_Pressure, '', qos=1, retain=True)
-            time.sleep(300)
-            microcontroller.reset()
+            print("Show status")
+            TheDisplay.StatusText(1, "ESP32-S3 Display")
+            TheDisplay.StatusText(2, '{0:X}:{1:X}:{2:X}:{3:X}:{4:X}:{5:X}'.format(wifi.radio.mac_address[0],wifi.radio.mac_address[1],wifi.radio.mac_address[2],wifi.radio.mac_address[3],wifi.radio.mac_address[4],wifi.radio.mac_address[5]))
+            TheDisplay.StatusText(3, "SSID: %s" % secrets["ssid"])
+            TheDisplay.StatusText(4, "IP: " + str(wifi.radio.ipv4_address))
+            TheDisplay.StatusText(5, "MQTT: " + secrets["mqtt_broker_ip"])
+        
+            #print("Delete the MQTT sensor")
+            #TheDisplay.ShowStatus()
+            #TheDisplay.Update(None) #TODO: Put this in the show status function
+            #TheDisplay.ClearStatusText()
+            #TheDisplay.StatusText(1,"Removing MQTT config")
+            #mqtt_client.publish(MQTT_Config_Temp, '', qos=1, retain=True)
+            #mqtt_client.publish(MQTT_Config_Humidity, '', qos=1, retain=True)
+            #mqtt_client.publish(MQTT_Config_Pressure, '', qos=1, retain=True)
+            #time.sleep(300)
+            #microcontroller.reset()
         button_A.count = 0
 
     if button_C.count > 0:
         print('Button C pressed')
         if TheDisplay.DisplayIsBlanked():
-            TheDisplay.Unblank()
+            TheDisplay.ShowRemote()
         else:
-            TheDisplay.Unblank()
             print("button C do stuff")
             TheDisplay.ShowRemote()
         button_C.count = 0
 
     #If we don't have a valid time from NTP, try to get it here
-    #This function checks for a time every ~15 min if the RTC is not set, and every 24 hours if it is.
+    #This function checks for a time every ~15 min if the RTC is not set, and every 24 hours if it is.'
+    #Here we call the get time function in 'silent mode' this mode will not change the display.
     if ((not NTP_Time_Set) and (NTP_Retry > 100)) or (NTP_Retry > 8640):
-        NTP_Time_Set = GetTimeFromNTP()
-        TheDisplay.ShowRemote()
+        NTP_Time_Set = GetTimeFromNTP(SilentMode = True)
         NTP_Retry = 0
     else:
         NTP_Retry = NTP_Retry + 1
-
 
     #MQTT Loop, reconnect on errors
     try:
@@ -410,7 +409,6 @@ while True:
         ConnectToNetwork()
         NTP_Time_Set = GetTimeFromNTP()
         TheDisplay.ShowRemote()
-        #TODO: Do I need to switch back to data view here?
         continue
 
     now = time.localtime()
@@ -440,8 +438,5 @@ while True:
             NTP_Time_Set = GetTimeFromNTP()
             continue
         OldMin = now.tm_min
-
-
-
 
     time.sleep(1)

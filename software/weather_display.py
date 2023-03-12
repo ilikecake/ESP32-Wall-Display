@@ -9,6 +9,7 @@ _DisplayState_Status = 1
 _DisplayState_Remote = 2
 _DisplayState_Local = 3
 _DisplayState_Blank = 4
+#_DisplayState_NoData = 5
 
 class WeatherDisplay:
     def __init__(self, i2c):
@@ -23,7 +24,10 @@ class WeatherDisplay:
         self._DataCounter = 0               #Starts at zero. A zero indicates that no data has been recieved.
         self._DataCounterMax = 100          #Does this need to be a internal variable?
         self._DisplayTimeoutCounter = 0     #
-        self._DisplayTimeoutMax = 50       #Does this need to be a internal variable?
+        self._DisplayTimeoutMax = 50        #Does this need to be a internal variable?
+        self._RemoteDisplayTimout = 50
+        self._LocalDisplayTimout = 50
+        self._StatusDisplayTimout = 50
         self._LocalDisplayCounter = 0     #
         self._LocalDisplayCounter_Max = 20       #Does this need to be a internal variable?
         self._DisplayIsBlank = True
@@ -140,40 +144,42 @@ class WeatherDisplay:
         self.Blank()
 
     def Update(self, now):
-        #_DisplayTimeoutCounter: when this reaches zero, blank the display.
-        #   Set by: Unblank(), always-on-time
+        #Display Handling:
+        # 'DisplayTimeoutCounter' decrements every time this function is called. When 'DisplayTimeoutCounter' 
+        # reaches zero, 'DisplayStateChanged' is set to true and The new desired display state is set in the
+        # 'DisplayState' variable. Every time though this function we check if 'DisplayStateChanged'
+        # is true, and if so, set the display based on the 'DisplayState' setting. If 'DisplayStateChanged' is
+        # false, the display will not update. If the new display state should have a timeout, that should also
+        # be set at the same time as 'DisplayStateChanged' is set to true.
         #
-        #_DataCounter: When this reaches zero, the remote data is stale.
-        #   Set by: UpdateRemote()
-        #print("Disp T/O: " + str(self._DisplayTimeoutCounter) + 
-        #      "  Data T/O: " + str(self._DataCounter) + 
-        #      "  loc T/O: " + str(self._LocalDisplayCounter) + 
-        #      "  blnk: " + str(self._DisplayIsBlank) +
-        #      "  state: " + str(self._DisplayState) )
-              
-        if self._DataCounter > 0:   #TODO: Remote data counter??
-            if (self._DataCounter == 1):
-                #Remote data lost, switch to status display
+        # The 'DataCounter' decrements every time through this loop. 'DataCounter' is reset when new remote data is
+        # recieved. If the DataCounter reaches zero, we assume the connection to the remote sensor is lost.
+        #
+        # The same function that updates the display will handle loss of remote data. If remote data is lost, the
+        # remote display will change to say 'Waiting for remote data'. The other screens will be shown as normal.
+        
+        print("Display Counter: " + str(self._DisplayTimeoutCounter))
+
+        if self._DataCounter > 0:
+            self._DataCounter = self._DataCounter - 1
+            if (self._DataCounter == 0):
+                #Remote data lost. Note that we don't set a new display state here. If the display state is 'remote' then
+                #the display will change to say 'Waiting for data', if another display is showing, it will not change.
                 self._DisplayStateChanged = True
                 self._RemoteDataLost = True
-            elif (self._DataCounter == self._DataCounterMax) and (self._RemoteDataLost == True):
-                #This occurs when the display is waiting for data, and new data comes in
-                #Indicate that the display state needs to be updated here
-                self._DisplayStateChanged = True
-                self._RemoteDataLost = False
-                self.Unblank()
-            self._DataCounter = self._DataCounter - 1
+             
         
         if self._DisplayTimeoutCounter > 0:
-            if (self._DisplayTimeoutCounter == 1):
-                self._DisplayStateChanged = True
             self._DisplayTimeoutCounter = self._DisplayTimeoutCounter - 1
-            
-        #TODO: This resets the display timeout, do I want that?
-        if self._LocalDisplayCounter > 0:
-            if (self._LocalDisplayCounter == 1):
-                self.ShowRemote()
-            self._LocalDisplayCounter = self._LocalDisplayCounter - 1
+            if (self._DisplayTimeoutCounter == 0):
+                #A timeout is reached. Set DisplayStateChanged to true, and set the new display state and timeout.
+                self._DisplayStateChanged = True
+                if (self._DisplayState == _DisplayState_Local) or (self._DisplayState == _DisplayState_Status):
+                    self._DisplayState = _DisplayState_Remote
+                    self._DisplayTimeoutCounter = self._RemoteDisplayTimout
+                elif self._DisplayState == _DisplayState_Remote:
+                    #Don't set the timeout counter again here. This makes the display blank until something else wakes it up.
+                    self._DisplayState = _DisplayState_Blank
 
         if now is not None:
             if now.tm_min != self._oldMin:
@@ -183,30 +189,32 @@ class WeatherDisplay:
                 self.UpdateDate(now)
                 self._oldDay = now.tm_mday
             if self._DisplayShouldBeOn(now):
-                self.Unblank()
-                
-        
+                #Turn on display
+                if self._DisplayState == _DisplayState_Blank:
+                    self._DisplayStateChanged = True
+                    self._DisplayState = _DisplayState_Remote
 
         if self._DisplayStateChanged:
-            print("Display State Changed")
-            if (self._DisplayTimeoutCounter == 0) and (self._DisplayIsBlank is False):
-                print("blank")
-                self.Blank()
-            else:
-                self._DisplayTimeoutCounter = self._DisplayTimeoutMax
-                if (self._DisplayState == _DisplayState_Remote):
-                    if not self._RemoteDataLost:
-                        self._UpdateSensorDisplay()
-                        self._display.show(self._WeatherDisplay)
-                    else:
-                        self.StatusText(1, 'Waiting for data...')
-                        self._display.show(self._MessageDisplay)
-                elif (self._DisplayState == _DisplayState_Local):
-                    self._UpdateSensorDisplay()
-                    self._display.show(self._WeatherDisplay)
-                elif self._DisplayState == _DisplayState_Status:
-                    self._display.show(self._MessageDisplay)
             self._DisplayStateChanged = False
+            if self._DisplayState == _DisplayState_Remote:
+                if self._RemoteDataLost == True:
+                    self.StatusText(1, 'Waiting for data...')
+                    self._display.show(self._MessageDisplay)
+                else:
+                    self._UpdateSensorDisplay()
+                    self.SetWeatherLabel("Outside:")
+                    self._display.show(self._WeatherDisplay)
+            elif self._DisplayState == _DisplayState_Local:
+                self._UpdateSensorDisplay()
+                self.SetWeatherLabel("Inside:")
+                self._display.show(self._WeatherDisplay)
+            elif self._DisplayState == _DisplayState_Status:
+                self._display.show(self._MessageDisplay)
+            #elif self._DisplayState == _DisplayState_NoData:    
+            #    self.StatusText(1, 'Waiting for data...')
+            #    self._display.show(self._MessageDisplay)
+            elif self._DisplayState == _DisplayState_Blank:
+                self._display.show(self._BlankDisplay)
 
     def UpdateTime(self, now):
         if now.tm_hour > 12:
@@ -231,9 +239,15 @@ class WeatherDisplay:
 
     def UpdateRemote(self, sensor_data):
         self._DataCounter = self._DataCounterMax
-        #self._RemoteDataLost = False
         self._RemoteData = sensor_data
         self._UpdateSensorDisplay()
+        
+        if self._RemoteDataLost == True:
+            #If we get data again after loosing it, the display will say 'waiting for data'. Setting DisplayStateChanged here to true
+            #tells the update function to show the new data.
+            self._DisplayStateChanged = True
+            self._RemoteDataLost = False
+            self.Update(None)
         
         #TODO: Not sure if this should go here, or in the update function. If I put it here, it is only called when new data exsists.
         #TODO: Maybe make a function that updates the display with new data.
@@ -271,10 +285,14 @@ class WeatherDisplay:
             else:
                 self._MessageText[LineToDisplay-1].text = TextToDisplay
 
-    def ShowStatus(self):
-        self.Unblank()
+    def ShowStatus(self, TimeoutToSet = None):
+        #Set TimeoutToSet to 0 to keep the message on the display forever.
+        if TimeoutToSet is None:
+            TimeoutToSet = self._StatusDisplayTimout
         self._DisplayStateChanged = True
         self._DisplayState = _DisplayState_Status
+        self._DisplayTimeoutCounter = TimeoutToSet
+        self.Update(None)
 
     def ClearStatusText(self):
         self._MessageText[0].text = ''
@@ -284,33 +302,53 @@ class WeatherDisplay:
         self._MessageText[4].text = ''
 
     def ShowRemote(self):
-        self.Unblank()
+        #External function to show the remote data.
+        print('Showing remote')
+        #self.Unblank()
         self._DisplayStateChanged = True
-        self.SetWeatherLabel("Outside:")
-        self._UpdateSensorDisplay()
+        #self.SetWeatherLabel("Outside:")
+        #self._UpdateSensorDisplay()
         self._DisplayState = _DisplayState_Remote
+        self._DisplayTimeoutCounter = self._RemoteDisplayTimout
+        self.Update(None)
+        #TODO: Call update here?
         
     def ShowLocal(self):
+        #External function to show the local data.
         print('Showing local')
-        self.Unblank()
+        #self.Unblank()
         self._DisplayStateChanged = True
-        self.SetWeatherLabel("Inside:")
-        self._UpdateSensorDisplay()
+        #self.SetWeatherLabel("Inside:")
+        #self._UpdateSensorDisplay()
         self._DisplayState = _DisplayState_Local
-        self._LocalDisplayCounter = self._LocalDisplayCounter_Max
+        #self._LocalDisplayCounter = self._LocalDisplayCounter_Max
+        self._DisplayTimeoutCounter = self._LocalDisplayTimout
+        self.Update(None)
+        #TODO: Call update here?
         
     def Blank(self):
-        self._DisplayIsBlank = True
-        self._display.show(self._BlankDisplay)
+        #External function to blank the display.
+        self._DisplayStateChanged = True
+        self._DisplayState = _DisplayState_Blank
+        self.Update(None)
+        #self._DisplayIsBlank = True
+        #self._display.show(self._BlankDisplay)
         
     def Unblank(self):
-        if self._DisplayIsBlank:
-            self._DisplayIsBlank = False
-            self._DisplayStateChanged = True
-        self._DisplayTimeoutCounter = self._DisplayTimeoutMax
+        #External function to unblank the display.
+        self._DisplayStateChanged = True
+        self._DisplayState = _DisplayState_Remote   #TODO: I could add something here so that the user can set what screen to show on unblank?
+        self.Update(None)
+        #if self._DisplayIsBlank:
+        #    self._DisplayIsBlank = False
+        #    self._DisplayStateChanged = True
+        #self._DisplayTimeoutCounter = self._DisplayTimeoutMax
         
     def DisplayIsBlanked(self):
-        return self._DisplayIsBlank
+        if self._DisplayState == _DisplayState_Blank:
+            return True
+        else:
+            return False
 
     def _DisplayShouldBeOn(self, now):
         #This function should return true if the display should be always on at this time.
