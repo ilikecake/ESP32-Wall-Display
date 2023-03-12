@@ -312,6 +312,14 @@ def GetLocalData():
     LocalData["humidity"] = bme280.humidity
     LocalData["pressure"] = bme280.pressure
 
+def RemoveMQTT():
+    #Sends empty config packets to home assistant. This tells home assistant to delete these sensors from its config.
+    #Should never be called, but I am saving this here in case it is needed for debug.
+    print("Delete the MQTT sensor")
+    mqtt_client.publish(MQTT_Config_Temp, '', qos=1, retain=True)
+    mqtt_client.publish(MQTT_Config_Humidity, '', qos=1, retain=True)
+    mqtt_client.publish(MQTT_Config_Pressure, '', qos=1, retain=True)
+
 #TODO: Error check the I2C connection to the sensor?
 
 #Initialize I2C and devices
@@ -353,14 +361,10 @@ while True:
     ButtonAPressed = False
     ButtonCPressed = False
     if button_A.count > 0:
-        ButtonAPressCount = ButtonAPressCount + 1
         print('Button A pressed')
-        if TheDisplay.DisplayIsBlanked():
+        if TheDisplay.GetDisplayState() == weather_display.DisplayState_Blank:
             TheDisplay.ShowRemote()
-        else:
-            print("button A do stuff")
-            TheDisplay.ShowLocal()
-        if ButtonAPressCount > 5:
+        elif TheDisplay.GetDisplayState() == weather_display.DisplayState_Local:
             TheDisplay.ShowStatus()
             print("Show status")
             TheDisplay.StatusText(1, "ESP32-S3 Display")
@@ -368,25 +372,15 @@ while True:
             TheDisplay.StatusText(3, "SSID: %s" % secrets["ssid"])
             TheDisplay.StatusText(4, "IP: " + str(wifi.radio.ipv4_address))
             TheDisplay.StatusText(5, "MQTT: " + secrets["mqtt_broker_ip"])
-        
-            #print("Delete the MQTT sensor")
-            #TheDisplay.ShowStatus()
-            #TheDisplay.Update(None) #TODO: Put this in the show status function
-            #TheDisplay.ClearStatusText()
-            #TheDisplay.StatusText(1,"Removing MQTT config")
-            #mqtt_client.publish(MQTT_Config_Temp, '', qos=1, retain=True)
-            #mqtt_client.publish(MQTT_Config_Humidity, '', qos=1, retain=True)
-            #mqtt_client.publish(MQTT_Config_Pressure, '', qos=1, retain=True)
-            #time.sleep(300)
-            #microcontroller.reset()
+        else:
+            TheDisplay.ShowLocal()
         button_A.count = 0
 
     if button_C.count > 0:
         print('Button C pressed')
-        if TheDisplay.DisplayIsBlanked():
+        if TheDisplay.GetDisplayState() == weather_display.DisplayState_Blank:
             TheDisplay.ShowRemote()
         else:
-            print("button C do stuff")
             TheDisplay.ShowRemote()
         button_C.count = 0
 
