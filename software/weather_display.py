@@ -188,8 +188,10 @@ class WeatherDisplay:
             if self._DisplayShouldBeOn(now):
                 #Turn on display
                 if self._DisplayState == DisplayState_Blank:
+                    #Keep the timout running. This is so that the display turns back off after DisplayShouldBeOn returns false.
                     self._DisplayStateChanged = True
                     self._DisplayState = DisplayState_Remote
+                    self._DisplayTimeoutCounter = self._RemoteDisplayTimout
 
         if self._DisplayStateChanged:
             self._DisplayStateChanged = False
