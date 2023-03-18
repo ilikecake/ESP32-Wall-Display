@@ -38,6 +38,7 @@ PixelOn = False
 PixelUpdate = False     #Set to true to indicate that the pixel needs to be updated. Pixel is updated in the main loop.
 
 NewRemoteData = False   #Set to true to indicate that new remote data is available. This is set in the MQTT callbacks, and handled in the main loop.
+DST_is_applied = -1
 
 #A counter that is used to control when the device checks for the time from NTP. By default the device checks
 #every ~15 min for NTP if it does not have a valid time, and every 24 hours if it has previously gotten a good time.
@@ -266,6 +267,7 @@ def ConnectToNetwork():
 # Calling this function with SilentMode = true will not change the display or the pixel. For periodic updates to the time during normal operation, use this mode.
 def GetTimeFromNTP(SilentMode = False):
     global pixel
+    global DST_is_applied
     NTP_Retries = 5
     NTP_Retry_Delay = 1     #sec
     Retries = 0
@@ -289,7 +291,9 @@ def GetTimeFromNTP(SilentMode = False):
         try:
             TZ_OFFSET = int(secrets["timezone"]) # time zone offset in hours from UTC
             ntp = adafruit_ntp.NTP(pool, tz_offset=TZ_OFFSET)
-            rtc.RTC().datetime = ntp.datetime
+            DST_is_applied = -1
+            HandleDST(ntp.datetime)
+
         except Exception as e:  # pylint: disable=broad-except
             print("Failed to get time from NTP. Error ({0:d}/{1:d}):".format(Retries, NTP_Retries), e)
             if SilentMode == False:
@@ -320,6 +324,47 @@ def RemoveMQTT():
     mqtt_client.publish(MQTT_Config_Temp, '', qos=1, retain=True)
     mqtt_client.publish(MQTT_Config_Humidity, '', qos=1, retain=True)
     mqtt_client.publish(MQTT_Config_Pressure, '', qos=1, retain=True)
+
+def HandleDST(now):
+    #Call periodically to check if DST is active and update the RTC if needed.
+    #   This function should be called by GetTimeFromNTP to determine if DST should be applied to the RTC time.
+    #   This fucntion should also be called periodically from the main loop to change the time with DST starts and ends.
+    #
+    #   Note that the 'tm_isdst' part of the time struct is not implemented, so we have a separate global variable (DST_is_applied) to track
+    #   if DST is applied.
+    #
+    #   In the U.S., daylight saving time starts on the second Sunday
+    #   in March and ends on the first Sunday in November, with the time
+    #   changes taking place at 2:00 a.m. local time.
+    global DST_is_applied
+    corrected_time_struct = None
+
+    if ((now.tm_mon > 3) and (now.tm_mon < 11)) or ((now.tm_mon == 3) and (now.tm_mday - now.tm_wday >= 8)) or ((now.tm_mon == 11) and (now.tm_mday - now.tm_wday <= 0)):
+        #is DST
+        #print("DST active")
+        if (DST_is_applied != 1):
+            #Time was not DST, but should be. Add 1 hour.
+            nowinsec = time.mktime(now)
+            corrected_time = nowinsec+3600
+            corrected_time_struct = time.localtime(corrected_time)
+            DST_is_applied = 1
+            #print(corrected_time_struct)
+    else:
+        #not DST
+        #print("DST not active")
+        if (DST_is_applied == 1):
+            #Time was DST, but is not anymore. Subtract 1 hour.
+            nowinsec = time.mktime(now)
+            corrected_time = nowinsec-3600
+            corrected_time_struct = time.localtime(corrected_time)
+            DST_is_applied = 0
+        elif  (DST_is_applied == -1):
+            #Time is not DST, but tm_isdst is not set. Set it to 0. Do not change time.
+            DST_is_applied = 0
+
+    #print(corrected_time_struct)
+    if corrected_time_struct is not None:
+        rtc.RTC().datetime = corrected_time_struct
 
 #Initialize I2C and devices
 i2c = board.I2C()  # uses board.SCL and board.SDA
@@ -427,6 +472,7 @@ while True:
     if now.tm_min != OldMin:
         GetLocalData()
         TheDisplay.UpdateLocal(LocalData)
+        HandleDST(now)
         print('{0:02d}:{1:02d}:{2:02d}: T:{3:.4f}, P:{4:.4f}, H:{5:.4f}'.format(now.tm_hour,
                                                                                 now.tm_min,
                                                                                 now.tm_sec,
