@@ -35,6 +35,10 @@ secrets = {
     #The MQTT topic of the remote sensor.
     'Remote_Data_Topic' : 'homeassistant/sensor/WeatherStation/state',
     
+    #The server or pool to use for NTP time. This can be set to the IP address of a local NTP server
+    #or an internet based NTP pool. You can also set it to blank ('') to skip setting time.
+    'NTP_ip' : '0.pool.ntp.org',
+    
     #Your timezone in hours (+ or -) from GMT
     'timezone' : '-6',
     

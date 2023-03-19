@@ -293,6 +293,10 @@ def GetTimeFromNTP(SilentMode = False):
     NTP_Retry_Delay = 1     #sec
     Retries = 0
 
+    if secrets["NTP_ip"] is '':
+        print("Skipping time setup")
+        return False
+
     if SilentMode == False:
         TheDisplay.ClearStatusText()
         TheDisplay.StatusText(1,"Setting time...")
@@ -311,7 +315,7 @@ def GetTimeFromNTP(SilentMode = False):
 
         try:
             TZ_OFFSET = int(secrets["timezone"]) # time zone offset in hours from UTC
-            ntp = adafruit_ntp.NTP(pool, tz_offset=TZ_OFFSET)
+            ntp = adafruit_ntp.NTP(pool, server=secrets["NTP_ip"], tz_offset=TZ_OFFSET)
             DST_is_applied = -1
             HandleDST(ntp.datetime)
 
