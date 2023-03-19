@@ -78,6 +78,12 @@ MQTT_Config_Temp = "homeassistant/sensor/" + secrets["UUID"]+"_temp/config"
 MQTT_Config_Humidity = "homeassistant/sensor/"+secrets["UUID"]+"_humidity/config"
 MQTT_Config_Pressure = "homeassistant/sensor/"+secrets["UUID"]+"_pressure/config"
 
+MQTT_Config_Upper_Button = "homeassistant/device_automation/" + secrets["UUID"]+"/upper_button/config"
+MQTT_State_Upper_Button = "homeassistant/device_automation/" + secrets["UUID"]+"/upper_button/state"
+MQTT_Config_Lower_Button = "homeassistant/device_automation/" + secrets["UUID"]+"/lower_button/config"
+MQTT_State_Lower_Button = "homeassistant/device_automation/" + secrets["UUID"]+"/lower_button/state"
+
+
 MQTT_lwt = "homeassistant/sensor/"+secrets["UUID"]+"_" + secrets["device_ID"] + "/lwt"
 
 MQTT_Device_info = {"ids":               [secrets["UUID"]],                                         \
@@ -121,7 +127,19 @@ MQTT_Config_Pressure_Payload = json.dumps({"device_class":           "pressure",
                                            "payload_not_available":  "offline",                                 \
                                            "device":                 MQTT_Device_info                           })
 
+MQTT_Config_Upper_Button_Payload = json.dumps({"automation_type":        "trigger",                  \
+                                            "type":                   "button_short_press",       \
+                                          "subtype":                "Upper Button",             \
+                                          "topic":                  MQTT_State_Upper_Button,         \
+                                          "payload":                "Click",                    \
+                                          "device":                 MQTT_Device_info            })
 
+MQTT_Config_Lower_Button_Payload = json.dumps({"automation_type":        "trigger",                  \
+                                          "type":                   "button_short_press",       \
+                                          "subtype":                "Lower Button",             \
+                                          "topic":                  MQTT_State_Lower_Button,         \
+                                          "payload":                "Click",                    \
+                                          "device":                 MQTT_Device_info            })
 
 #MQTT Callbacks. Most of these are not used.
 def connect(mqtt_client, userdata, flags, rc):
@@ -247,6 +265,9 @@ def ConnectToNetwork():
                 mqtt_client.publish(MQTT_Config_Temp, MQTT_Config_Temp_Payload, qos=1, retain=True)
                 mqtt_client.publish(MQTT_Config_Humidity, MQTT_Config_Humidity_Payload, qos=1, retain=True)
                 mqtt_client.publish(MQTT_Config_Pressure, MQTT_Config_Pressure_Payload, qos=1, retain=True)
+                mqtt_client.publish(MQTT_Config_Upper_Button, MQTT_Config_Upper_Button_Payload, qos=1, retain=True)
+                mqtt_client.publish(MQTT_Config_Lower_Button, MQTT_Config_Lower_Button_Payload, qos=1, retain=True)
+
             except Exception as e:  # pylint: disable=broad-except
                 print("Failed ({0:d}/{1:d}). Error:".format(Retries, TIMEOUT_COUNTS), e)
                 TheDisplay.StatusText(3,"Failed ({0:d}/{1:d})".format(Retries, TIMEOUT_COUNTS))
@@ -385,6 +406,8 @@ now = time.localtime()
 OldMin = now.tm_min
 
 TheDisplay.ShowRemote()
+SendLowerButton = False
+SendUpperButton = False
 
 while True:
     #Get the time
@@ -401,6 +424,7 @@ while True:
         PixelUpdate = False
 
     #Handle button presses. Button presses are counted asynchronously. If the count is > 0, the button was pressed.
+    #   In its final orientation, button A is the lower button and button C is the upper button.
     #   - If the display is blanked, any button press shows the remote data.
     #   - If the display is showing the remote display, pressing button A will show the local display.
     #   - If the display is showing the local display, pressing button A will show device status.
@@ -411,6 +435,7 @@ while True:
         if TheDisplay.GetDisplayState() == weather_display.DisplayState_Blank:
             TheDisplay.ShowRemote()
         elif TheDisplay.GetDisplayState() == weather_display.DisplayState_Local:
+            SendLowerButton = True
             TheDisplay.ShowStatus()
             print("Show status")
             TheDisplay.StatusText(1, "ESP32-S3 Display")
@@ -419,6 +444,7 @@ while True:
             TheDisplay.StatusText(4, "IP: " + str(wifi.radio.ipv4_address))
             TheDisplay.StatusText(5, "MQTT: " + secrets["mqtt_broker_ip"])
         else:
+            SendLowerButton = True
             TheDisplay.ShowLocal()
         button_A.count = 0
 
@@ -428,6 +454,7 @@ while True:
             TheDisplay.ShowRemote()
         else:
             TheDisplay.ShowRemote()
+            SendUpperButton = True
         button_C.count = 0
 
     #Handle the RTC and time setting.
@@ -445,6 +472,12 @@ while True:
 
     #Handle MQTT communication. If we get an error sending data, try to reconnect.
     try:
+        if SendLowerButton:
+            mqtt_client.publish(MQTT_State_Lower_Button, "Click")
+            SendLowerButton = False
+        if SendUpperButton:
+            mqtt_client.publish(MQTT_State_Upper_Button, "Click")
+            SendUpperButton = False
         mqtt_client.loop()
     except (ValueError, RuntimeError, OSError, MQTT.MMQTTException) as e:
         pixel.fill((50, 50, 0)) #yellow
