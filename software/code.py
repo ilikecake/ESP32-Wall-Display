@@ -37,6 +37,10 @@ PixelBrightness = 0
 PixelOn = False
 PixelUpdate = False     #Set to true to indicate that the pixel needs to be updated. Pixel is updated in the main loop.
 
+PixelState = {"state":          "OFF",                      \
+              "brightness":     0,                          \
+              "color":          {"r": 0, "g": 0, "b": 0}}
+
 NewRemoteData = False   #Set to true to indicate that new remote data is available. This is set in the MQTT callbacks, and handled in the main loop.
 DST_is_applied = -1
 
@@ -72,6 +76,10 @@ RemoteData = {
 
 MQTT_Light_topic = secrets["device_status_topic"] + '#'
 MQTT_Remote_Data_Topic = secrets["Remote_Data_Topic"]
+
+MQTT_Config_light = "homeassistant/light/" + secrets["UUID"]+"/config"
+MQTT_Light_State_Topic = "homeassistant/light/" + secrets["UUID"] + "/state"
+MQTT_Light_Command_Topic = "homeassistant/light/" + secrets["UUID"] + "/command"
 
 MQTT_State_Topic = "homeassistant/sensor/" + secrets["UUID"] + "/state"
 MQTT_Config_Temp = "homeassistant/sensor/" + secrets["UUID"]+"_temp/config"
@@ -127,6 +135,19 @@ MQTT_Config_Pressure_Payload = json.dumps({"device_class":           "pressure",
                                            "payload_not_available":  "offline",                                 \
                                            "device":                 MQTT_Device_info                           })
 
+MQTT_Config_Light_Payload = json.dumps({"name":                         secrets["device_name"] + " Light",      \
+                                        "schema":                       'json',                                 \
+                                        "state_topic":                  MQTT_Light_State_Topic,                 \
+                                        "command_topic":                MQTT_Light_Command_Topic,               \
+                                        "brightness":                   'true',                                 \
+                                        "color_mode":                   'true',                                 \
+                                        "supported_color_modes":        ["rgb"],                                \
+                                        "unique_id":                    secrets["UUID"]+"_light",               \
+                                        "availability_topic":           MQTT_lwt,                               \
+                                        "payload_available":            "online",                               \
+                                        "payload_not_available":        "offline",                              \
+                                        "device":                       MQTT_Device_info                        })
+
 MQTT_Config_Upper_Button_Payload = json.dumps({"automation_type":        "trigger",                  \
                                             "type":                   "button_short_press",       \
                                           "subtype":                "Upper Button",             \
@@ -175,6 +196,18 @@ def message(client, topic, message):
     global PixelOn
     global PixelBrightness
     global PixelUpdate
+    global PixelState
+    #print("New message on topic {0}: {1}".format(topic, message))
+
+    if topic == MQTT_Light_Command_Topic:
+        PixelUpdate = True
+        print("in: ", message)
+        light_command = json.loads(message)
+        PixelState["state"] = light_command["state"]
+        if "color" in light_command:
+            PixelState["color"] = light_command["color"]
+        if "brightness" in light_command:
+            PixelState["brightness"] = light_command["brightness"]
     # Method called when a client's subscribed feed has a new value.
     if topic == MQTT_Remote_Data_Topic:
         #There is new remote data from the server.
@@ -261,10 +294,13 @@ def ConnectToNetwork():
                 mqtt_client.connect()       #This command has a built in retry/timeout, so it takes about 3 min to fail.
                 mqtt_client.subscribe(MQTT_Light_topic, qos=1)
                 mqtt_client.subscribe(MQTT_Remote_Data_Topic, qos=1)
+                mqtt_client.subscribe(MQTT_Light_Command_Topic, qos=1)
+
                 mqtt_client.publish(MQTT_lwt, 'online', qos=1, retain=True)
                 mqtt_client.publish(MQTT_Config_Temp, MQTT_Config_Temp_Payload, qos=1, retain=True)
                 mqtt_client.publish(MQTT_Config_Humidity, MQTT_Config_Humidity_Payload, qos=1, retain=True)
                 mqtt_client.publish(MQTT_Config_Pressure, MQTT_Config_Pressure_Payload, qos=1, retain=True)
+                mqtt_client.publish(MQTT_Config_light, MQTT_Config_Light_Payload, qos=1, retain=True)
                 mqtt_client.publish(MQTT_Config_Upper_Button, MQTT_Config_Upper_Button_Payload, qos=1, retain=True)
                 mqtt_client.publish(MQTT_Config_Lower_Button, MQTT_Config_Lower_Button_Payload, qos=1, retain=True)
 
@@ -349,6 +385,9 @@ def RemoveMQTT():
     mqtt_client.publish(MQTT_Config_Temp, '', qos=1, retain=True)
     mqtt_client.publish(MQTT_Config_Humidity, '', qos=1, retain=True)
     mqtt_client.publish(MQTT_Config_Pressure, '', qos=1, retain=True)
+    mqtt_client.publish(MQTT_Config_light, '', qos=1, retain=True)
+    mqtt_client.publish(MQTT_Config_Upper_Button, '', qos=1, retain=True)
+    mqtt_client.publish(MQTT_Config_Lower_Button, '', qos=1, retain=True)
 
 def HandleDST(now):
     #Call periodically to check if DST is active and update the RTC if needed.
@@ -364,7 +403,9 @@ def HandleDST(now):
     global DST_is_applied
     corrected_time_struct = None
 
-    if ((now.tm_mon > 3) and (now.tm_mon < 11)) or ((now.tm_mon == 3) and (now.tm_mday - now.tm_wday >= 8)) or ((now.tm_mon == 11) and (now.tm_mday - now.tm_wday <= 0)):
+    if ((now.tm_mon > 3) and (now.tm_mon < 11)) or                                          \
+       ((now.tm_mon == 3) and (now.tm_mday - now.tm_wday >= 8) and (now.tm_hour >= 2)) or   \
+       ((now.tm_mon == 11) and (now.tm_mday - now.tm_wday <= 0) and (now.tm_hour >= 2)):
         #is DST
         #print("DST active")
         if (DST_is_applied != 1):
@@ -413,19 +454,23 @@ TheDisplay.ShowRemote()
 SendLowerButton = False
 SendUpperButton = False
 
+#RemoveMQTT()
+
 while True:
     #Get the time
     now = time.localtime()
 
     #Handle Neopixel. If new pixel data is recieved from the MQTT broker, the pixel is updated here.
     if PixelUpdate == True:
-        print("Update Pixel: PixelOn " + str(PixelOn) + " PixelBrightness: " + str(PixelBrightness) + " PixelRGBValue: " + str(PixelRGBValue))
-        if PixelOn:
-            pixel.fill(PixelRGBValue)
-            pixel.brightness = PixelBrightness
+        print("Update Pixel: ", PixelState)#PixelOn " + str(PixelOn) + " PixelBrightness: " + str(PixelBrightness) + " PixelRGBValue: " + str(PixelRGBValue))
+        if PixelState["state"] == "ON":
+            pixel.fill( [int(PixelState["color"]["r"]), int(PixelState["color"]["g"]), int(PixelState["color"]["b"])] )
+            pixel.brightness = PixelState["brightness"]/255
         else:
             pixel.fill((0, 0, 0))
         PixelUpdate = False
+        print(json.dumps(PixelState))
+        mqtt_client.publish(MQTT_Light_State_Topic, json.dumps(PixelState), qos=1, retain=True)
 
     #Handle button presses. Button presses are counted asynchronously. If the count is > 0, the button was pressed.
     #   In its final orientation, button A is the lower button and button C is the upper button.
