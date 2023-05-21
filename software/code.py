@@ -199,6 +199,13 @@ def message(client, topic, message):
     global PixelState
     #print("New message on topic {0}: {1}".format(topic, message))
 
+    if (topic == MQTT_lwt) and (message == "offline"):
+        #If the device resets quickly, it appears that the LWT message is not reset when the device reconnects.
+        #This leads to the LWT message firing even through the device is online.
+        #The device will never intentionally send a LWT message of 'offline', so if that message is recieved,
+        #resend the 'online' message.
+        mqtt_client.publish(MQTT_lwt, 'online', qos=1, retain=True)
+
     if topic == MQTT_Light_Command_Topic:
         PixelUpdate = True
         print("in: ", message)
